@@ -200,8 +200,9 @@ class AgentLoop:
                     clean = self._strip_think(response.content)
                     await on_progress(clean or self._tool_hint(response.tool_calls))
 
-                tool_call_dicts = [
-                    {
+                tool_call_dicts = []
+                for tc in response.tool_calls:
+                    d = {
                         "id": tc.id,
                         "type": "function",
                         "function": {
@@ -209,8 +210,9 @@ class AgentLoop:
                             "arguments": json.dumps(tc.arguments)
                         }
                     }
-                    for tc in response.tool_calls
-                ]
+                    if tc.metadata:
+                        d["metadata"] = tc.metadata
+                    tool_call_dicts.append(d)
                 messages = self.context.add_assistant_message(
                     messages, response.content, tool_call_dicts,
                     reasoning_content=response.reasoning_content,

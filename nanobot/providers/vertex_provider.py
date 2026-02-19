@@ -32,6 +32,7 @@ def _openai_messages_to_genai(
     """Convert OpenAI-format messages to google-genai Contents.
 
     Returns (system_instruction, contents).
+    Preserves Gemini thought signatures on function call parts.
     """
     system_parts: list[str] = []
     contents: list[types.Content] = []
@@ -55,10 +56,17 @@ def _openai_messages_to_genai(
                 if isinstance(args, str):
                     import json_repair
                     args = json_repair.loads(args)
-                parts.append(types.Part(function_call=types.FunctionCall(
+                meta = tc.get("metadata", {})
+                part = types.Part(function_call=types.FunctionCall(
                     name=fn.get("name", ""),
                     args=args,
-                )))
+                ))
+                # Replay thought signature if present (required by Gemini 3+)
+                if meta.get("thought_signature"):
+                    part.thought_signature = meta["thought_signature"]
+                if meta.get("thought"):
+                    part.thought = meta["thought"]
+                parts.append(part)
             if parts:
                 contents.append(types.Content(role="model", parts=parts))
             continue
@@ -88,7 +96,6 @@ def _openai_messages_to_genai(
                     elif part.get("type") == "image_url":
                         url = part.get("image_url", {}).get("url", "")
                         if url.startswith("data:"):
-                            # base64 data URI
                             import base64
                             header, b64data = url.split(",", 1)
                             mime = header.split(":")[1].split(";")[0]
@@ -139,6 +146,7 @@ class VertexAIProvider(LLMProvider):
             temperature=temperature,
             max_output_tokens=max(1, max_tokens),
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            thinking_config=types.ThinkingConfig(thinking_budget=2048),
         )
         if genai_tools:
             config.tools = genai_tools
@@ -166,10 +174,17 @@ class VertexAIProvider(LLMProvider):
                 if part.text:
                     text_parts.append(part.text)
                 if part.function_call:
+                    # Capture thought signature for Gemini 3+ models
+                    meta: dict[str, Any] = {}
+                    if getattr(part, "thought_signature", None):
+                        meta["thought_signature"] = part.thought_signature
+                    if getattr(part, "thought", None):
+                        meta["thought"] = part.thought
                     tool_calls.append(ToolCallRequest(
                         id=f"call_{uuid.uuid4().hex[:24]}",
                         name=part.function_call.name,
                         arguments=dict(part.function_call.args) if part.function_call.args else {},
+                        metadata=meta,
                     ))
 
         finish_reason = "stop"
