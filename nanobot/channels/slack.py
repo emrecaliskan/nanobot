@@ -2,7 +2,6 @@
 
 import asyncio
 import re
-from typing import Any
 
 from loguru import logger
 from slack_sdk.socket_mode.websockets import SocketModeClient
@@ -29,6 +28,11 @@ class SlackChannel(BaseChannel):
         self._web_client: AsyncWebClient | None = None
         self._socket_client: SocketModeClient | None = None
         self._bot_user_id: str | None = None
+        self._progress_messages: dict[str, str] = {}
+
+    @staticmethod
+    def _progress_key(chat_id: str, request_id: str) -> str:
+        return f"{chat_id}:{request_id}"
 
     async def start(self) -> None:
         """Start the Slack Socket Mode client."""
@@ -80,13 +84,57 @@ class SlackChannel(BaseChannel):
             return
         try:
             slack_meta = msg.metadata.get("slack", {}) if msg.metadata else {}
+            progress_meta = msg.metadata.get("progress", {}) if msg.metadata else {}
             thread_ts = slack_meta.get("thread_ts")
             channel_type = slack_meta.get("channel_type")
+            request_id = progress_meta.get("request_id")
+            is_progress = bool(progress_meta.get("is_progress"))
             # Only reply in thread for channel/group messages; DMs don't use threads
             use_thread = thread_ts and channel_type != "im"
+            progress_key = (
+                self._progress_key(msg.chat_id, request_id)
+                if isinstance(request_id, str) and request_id
+                else None
+            )
+            text = self._to_mrkdwn(msg.content)
+
+            # For progress updates, keep one transient message and edit it in-place.
+            if is_progress and progress_key:
+                progress_ts = self._progress_messages.get(progress_key)
+                if progress_ts:
+                    try:
+                        await self._web_client.chat_update(
+                            channel=msg.chat_id,
+                            ts=progress_ts,
+                            text=text,
+                        )
+                        return
+                    except Exception as e:
+                        logger.debug(f"Slack chat_update failed, creating new progress message: {e}")
+                        self._progress_messages.pop(progress_key, None)
+                posted = await self._web_client.chat_postMessage(
+                    channel=msg.chat_id,
+                    text=text,
+                    thread_ts=thread_ts if use_thread else None,
+                )
+                if ts := posted.get("ts"):
+                    self._progress_messages[progress_key] = ts
+                return
+
+            # Before final response, delete transient progress message (if any).
+            if progress_key:
+                if progress_ts := self._progress_messages.pop(progress_key, None):
+                    try:
+                        await self._web_client.chat_delete(
+                            channel=msg.chat_id,
+                            ts=progress_ts,
+                        )
+                    except Exception as e:
+                        logger.debug(f"Slack chat_delete failed for progress message: {e}")
+
             await self._web_client.chat_postMessage(
                 channel=msg.chat_id,
-                text=self._to_mrkdwn(msg.content),
+                text=text,
                 thread_ts=thread_ts if use_thread else None,
             )
         except Exception as e:
@@ -234,4 +282,3 @@ class SlackChannel(BaseChannel):
             if parts:
                 rows.append(" · ".join(parts))
         return "\n".join(rows)
-

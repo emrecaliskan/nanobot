@@ -1,13 +1,15 @@
 """Agent loop: the core processing engine."""
 
 import asyncio
+import copy
 from contextlib import AsyncExitStack
 import json
-import json_repair
 from pathlib import Path
 import re
 from typing import Any, Awaitable, Callable
+import uuid
 
+import json_repair
 from loguru import logger
 
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -338,9 +340,36 @@ class AgentLoop:
             channel=msg.channel,
             chat_id=msg.chat_id,
         )
+        progress_request_id = uuid.uuid4().hex if msg.channel == "slack" else None
+
+        async def _default_progress(content: str) -> None:
+            """Publish transient per-step progress for channels that support updates."""
+            text = (content or "").strip()
+            if not text or msg.channel != "slack" or not progress_request_id:
+                return
+            progress_metadata = copy.deepcopy(msg.metadata) if msg.metadata else {}
+            progress_metadata["progress"] = {
+                **(progress_metadata.get("progress") or {}),
+                "request_id": progress_request_id,
+                "is_progress": True,
+                "transient": True,
+            }
+            await self.bus.publish_outbound(
+                OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content=text,
+                    metadata=progress_metadata,
+                )
+            )
+
+        effective_progress = on_progress
+        if effective_progress is None and msg.channel == "slack":
+            effective_progress = _default_progress
+            await effective_progress("Thinking through your request...")
 
         final_content, tools_used = await self._run_agent_loop(
-            initial_messages, on_progress=on_progress,
+            initial_messages, on_progress=effective_progress,
             exclude_tools=exclude_tools,
         )
 
@@ -355,11 +384,18 @@ class AgentLoop:
                             tools_used=tools_used if tools_used else None)
         self.sessions.save(session)
         
+        outbound_metadata = copy.deepcopy(msg.metadata) if msg.metadata else {}
+        if progress_request_id:
+            outbound_metadata["progress"] = {
+                **(outbound_metadata.get("progress") or {}),
+                "request_id": progress_request_id,
+            }
+
         return OutboundMessage(
             channel=msg.channel,
             chat_id=msg.chat_id,
             content=final_content,
-            metadata=msg.metadata or {},  # Pass through for channel-specific needs (e.g. Slack thread_ts)
+            metadata=outbound_metadata,  # Pass through for channel-specific needs (e.g. Slack thread_ts)
         )
     
     async def _process_system_message(self, msg: InboundMessage) -> OutboundMessage | None:

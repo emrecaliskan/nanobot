@@ -507,14 +507,29 @@ def agent(
         # Animated spinner is safe to use with prompt_toolkit input handling
         return console.status("[dim]nanobot is thinking...[/dim]", spinner="dots")
 
+    thinking_status = {"status": None}
+
     async def _cli_progress(content: str) -> None:
-        console.print(f"  [dim]↳ {content}[/dim]")
+        text = " ".join((content or "").split())
+        if not text:
+            return
+        preview = text[:120] + "..." if len(text) > 120 else text
+        status = thinking_status["status"]
+        if status is not None:
+            status.update(f"[dim]↳ {preview}[/dim]")
+            return
+        if logs:
+            console.print(f"  [dim]↳ {preview}[/dim]")
 
     if message:
         # Single message mode
         async def run_once():
-            with _thinking_ctx():
-                response = await agent_loop.process_direct(message, session_id, on_progress=_cli_progress)
+            with _thinking_ctx() as status:
+                thinking_status["status"] = status
+                try:
+                    response = await agent_loop.process_direct(message, session_id, on_progress=_cli_progress)
+                finally:
+                    thinking_status["status"] = None
             _print_agent_response(response, render_markdown=markdown)
             await agent_loop.close_mcp()
         
@@ -546,8 +561,12 @@ def agent(
                             console.print("\nGoodbye!")
                             break
                         
-                        with _thinking_ctx():
-                            response = await agent_loop.process_direct(user_input, session_id, on_progress=_cli_progress)
+                        with _thinking_ctx() as status:
+                            thinking_status["status"] = status
+                            try:
+                                response = await agent_loop.process_direct(user_input, session_id, on_progress=_cli_progress)
+                            finally:
+                                thinking_status["status"] = None
                         _print_agent_response(response, render_markdown=markdown)
                     except KeyboardInterrupt:
                         _restore_terminal()
