@@ -4,6 +4,7 @@ from typing import Any
 
 from nanobot.agent.tools.base import Tool
 from nanobot.cron.service import CronService
+from nanobot.cron.timeparse import parse_one_time_at, validate_tz
 from nanobot.cron.types import CronSchedule
 
 
@@ -52,11 +53,11 @@ class CronTool(Tool):
                 },
                 "tz": {
                     "type": "string",
-                    "description": "IANA timezone for cron expressions (e.g. 'America/Vancouver')"
+                    "description": "IANA timezone for cron_expr or at (e.g. 'America/New_York'). Common abbreviations like EST/PST are accepted."
                 },
                 "at": {
                     "type": "string",
-                    "description": "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00')"
+                    "description": "One-time execution target: ISO datetime (optionally with timezone) or a time like '11:00 AM' (next occurrence)"
                 },
                 "job_id": {
                     "type": "string",
@@ -97,14 +98,12 @@ class CronTool(Tool):
             return "Error: message is required for add"
         if not self._channel or not self._chat_id:
             return "Error: no session context (channel/chat_id)"
-        if tz and not cron_expr:
-            return "Error: tz can only be used with cron_expr"
-        if tz:
-            from zoneinfo import ZoneInfo
-            try:
-                ZoneInfo(tz)
-            except (KeyError, Exception):
-                return f"Error: unknown timezone '{tz}'"
+        try:
+            tz = validate_tz(tz)
+        except ValueError as e:
+            return f"Error: {e}"
+        if tz and not cron_expr and not at:
+            return "Error: tz can only be used with cron_expr or at"
         
         # Build schedule
         delete_after = False
@@ -113,10 +112,11 @@ class CronTool(Tool):
         elif cron_expr:
             schedule = CronSchedule(kind="cron", expr=cron_expr, tz=tz)
         elif at:
-            from datetime import datetime
-            dt = datetime.fromisoformat(at)
-            at_ms = int(dt.timestamp() * 1000)
-            schedule = CronSchedule(kind="at", at_ms=at_ms)
+            try:
+                at_ms, at_tz = parse_one_time_at(at, tz=tz)
+            except ValueError as e:
+                return f"Error: {e}"
+            schedule = CronSchedule(kind="at", at_ms=at_ms, tz=at_tz)
             delete_after = True
         else:
             return "Error: either every_seconds, cron_expr, or at is required"

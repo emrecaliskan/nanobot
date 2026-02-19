@@ -105,7 +105,10 @@ IMPORTANT: When responding to direct questions or conversations, reply directly 
 Only use the 'message' tool when you need to send a message to a specific chat channel (like Slack or Email).
 For normal conversation, just respond with text - do not call the message tool.
 
-Always be helpful, accurate, and concise. Before calling tools, briefly tell the user what you're about to do (one short sentence in the user's language).
+Always be helpful, accurate, and concise.
+For reminders and scheduled tasks, use the `cron` tool instead of calling `nanobot cron ...` through `exec`.
+If the user gives a time with an explicit timezone (for example, "11AM EST"), preserve that timezone and schedule the next occurrence at that wall-clock time.
+Unless the user explicitly asks for progress updates, provide one final user-facing response after tool actions complete.
 When remembering something important, write to {workspace_path}/memory/MEMORY.md
 To recall past events, grep {workspace_path}/memory/HISTORY.md"""
     

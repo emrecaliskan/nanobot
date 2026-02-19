@@ -168,6 +168,7 @@ class AgentLoop:
         self,
         initial_messages: list[dict],
         on_progress: Callable[[str], Awaitable[None]] | None = None,
+        exclude_tools: set[str] | None = None,
     ) -> tuple[str | None, list[str]]:
         """
         Run the agent iteration loop.
@@ -175,6 +176,7 @@ class AgentLoop:
         Args:
             initial_messages: Starting messages for the LLM conversation.
             on_progress: Optional callback to push intermediate content to the user.
+            exclude_tools: Tool names to hide from the LLM (prevents recursive loops).
 
         Returns:
             Tuple of (final_content, list_of_tools_used).
@@ -184,12 +186,16 @@ class AgentLoop:
         final_content = None
         tools_used: list[str] = []
 
+        tool_defs = self.tools.get_definitions()
+        if exclude_tools:
+            tool_defs = [t for t in tool_defs if t["function"]["name"] not in exclude_tools]
+
         while iteration < self.max_iterations:
             iteration += 1
 
             response = await self.provider.chat(
                 messages=messages,
-                tools=self.tools.get_definitions(),
+                tools=tool_defs,
                 model=self.model,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
@@ -277,6 +283,7 @@ class AgentLoop:
         msg: InboundMessage,
         session_key: str | None = None,
         on_progress: Callable[[str], Awaitable[None]] | None = None,
+        exclude_tools: set[str] | None = None,
     ) -> OutboundMessage | None:
         """
         Process a single inbound message.
@@ -332,14 +339,9 @@ class AgentLoop:
             chat_id=msg.chat_id,
         )
 
-        async def _bus_progress(content: str) -> None:
-            await self.bus.publish_outbound(OutboundMessage(
-                channel=msg.channel, chat_id=msg.chat_id, content=content,
-                metadata=msg.metadata or {},
-            ))
-
         final_content, tools_used = await self._run_agent_loop(
-            initial_messages, on_progress=on_progress or _bus_progress,
+            initial_messages, on_progress=on_progress,
+            exclude_tools=exclude_tools,
         )
 
         if final_content is None:
@@ -495,6 +497,7 @@ Respond with ONLY valid JSON, no markdown fences."""
         channel: str = "cli",
         chat_id: str = "direct",
         on_progress: Callable[[str], Awaitable[None]] | None = None,
+        exclude_tools: set[str] | None = None,
     ) -> str:
         """
         Process a message directly (for CLI or cron usage).
@@ -517,5 +520,5 @@ Respond with ONLY valid JSON, no markdown fences."""
             content=content
         )
         
-        response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
+        response = await self._process_message(msg, session_key=session_key, on_progress=on_progress, exclude_tools=exclude_tools)
         return response.content if response else ""

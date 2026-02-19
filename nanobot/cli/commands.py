@@ -382,11 +382,15 @@ def gateway(
     # Set cron callback (needs agent)
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
+        # Exclude the cron tool during cron execution to prevent infinite loops:
+        # without this, the agent interprets reminder text like "Buy milk!" as a
+        # new user request and calls cron(add) again, looping forever.
         response = await agent.process_direct(
             job.payload.message,
             session_key=f"cron:{job.id}",
             channel=job.payload.channel or "cli",
             chat_id=job.payload.to or "direct",
+            exclude_tools={"cron"},
         )
         if job.payload.deliver and job.payload.to:
             from nanobot.bus.events import OutboundMessage
@@ -668,8 +672,8 @@ def cron_add(
     message: str = typer.Option(..., "--message", "-m", help="Message for agent"),
     every: int = typer.Option(None, "--every", "-e", help="Run every N seconds"),
     cron_expr: str = typer.Option(None, "--cron", "-c", help="Cron expression (e.g. '0 9 * * *')"),
-    tz: str | None = typer.Option(None, "--tz", help="IANA timezone for cron (e.g. 'America/Vancouver')"),
-    at: str = typer.Option(None, "--at", help="Run once at time (ISO format)"),
+    tz: str | None = typer.Option(None, "--tz", help="IANA timezone for --cron/--at (e.g. 'America/New_York', 'EST')"),
+    at: str = typer.Option(None, "--at", help="Run once at time (ISO datetime, or time like '11:00 AM')"),
     deliver: bool = typer.Option(False, "--deliver", "-d", help="Deliver response to channel"),
     to: str = typer.Option(None, "--to", help="Recipient for delivery"),
     channel: str = typer.Option(None, "--channel", help="Channel for delivery (e.g. 'slack', 'email')"),
@@ -677,10 +681,17 @@ def cron_add(
     """Add a scheduled job."""
     from nanobot.config.loader import get_data_dir
     from nanobot.cron.service import CronService
+    from nanobot.cron.timeparse import parse_one_time_at, validate_tz
     from nanobot.cron.types import CronSchedule
+
+    try:
+        tz = validate_tz(tz)
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
     
-    if tz and not cron_expr:
-        console.print("[red]Error: --tz can only be used with --cron[/red]")
+    if tz and not cron_expr and not at:
+        console.print("[red]Error: --tz can only be used with --cron or --at[/red]")
         raise typer.Exit(1)
 
     # Determine schedule type
@@ -689,9 +700,12 @@ def cron_add(
     elif cron_expr:
         schedule = CronSchedule(kind="cron", expr=cron_expr, tz=tz)
     elif at:
-        import datetime
-        dt = datetime.datetime.fromisoformat(at)
-        schedule = CronSchedule(kind="at", at_ms=int(dt.timestamp() * 1000))
+        try:
+            at_ms, at_tz = parse_one_time_at(at, tz=tz)
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            raise typer.Exit(1)
+        schedule = CronSchedule(kind="at", at_ms=at_ms, tz=at_tz)
     else:
         console.print("[red]Error: Must specify --every, --cron, or --at[/red]")
         raise typer.Exit(1)
