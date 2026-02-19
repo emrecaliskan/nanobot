@@ -1,6 +1,7 @@
 """Configuration loading utilities."""
 
 import json
+import os
 from pathlib import Path
 
 from nanobot.config.schema import Config
@@ -34,12 +35,19 @@ def load_config(config_path: Path | None = None) -> Config:
             with open(path) as f:
                 data = json.load(f)
             data = _migrate_config(data)
-            return Config.model_validate(data)
+            config = Config.model_validate(data)
         except (json.JSONDecodeError, ValueError) as e:
             print(f"Warning: Failed to load config from {path}: {e}")
             print("Using default configuration.")
+            config = Config()
+    else:
+        config = Config()
 
-    return Config()
+    # Expose config values as env vars for skills
+    if config.marshal_api_key:
+        os.environ.setdefault("MARSHAL_API_KEY", config.marshal_api_key)
+
+    return config
 
 
 def save_config(config: Config, config_path: Path | None = None) -> None:

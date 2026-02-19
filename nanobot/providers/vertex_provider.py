@@ -72,14 +72,16 @@ def _openai_messages_to_genai(
             continue
 
         if role == "tool":
-            # Tool result being sent back
-            contents.append(types.Content(
-                role="user",
-                parts=[types.Part.from_function_response(
-                    name=msg.get("name", msg.get("tool_call_id", "unknown")),
-                    response={"result": msg.get("content", "")},
-                )],
-            ))
+            # Tool result — batch consecutive tool messages into one Content
+            part = types.Part.from_function_response(
+                name=msg.get("name", msg.get("tool_call_id", "unknown")),
+                response={"result": msg.get("content", "")},
+            )
+            if contents and contents[-1].role == "user" and contents[-1].parts and hasattr(contents[-1].parts[0], "function_response"):
+                # Append to existing function response Content
+                contents[-1].parts.append(part)
+            else:
+                contents.append(types.Content(role="user", parts=[part]))
             continue
 
         # user message
