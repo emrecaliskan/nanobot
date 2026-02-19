@@ -332,6 +332,17 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         model_overrides=(),
     ),
 
+    # Vertex AI: Google Cloud, uses ADC + google-genai SDK (bypasses LiteLLM).
+    # api_key = GCP project ID, api_base = region (default us-central1).
+    ProviderSpec(
+        name="vertex_ai",
+        keywords=("vertex_ai", "vertex"),
+        env_key="",
+        display_name="Vertex AI",
+        litellm_prefix="",
+        is_direct=True,
+    ),
+
     # === Local deployment (matched by config key, NOT by api_base) =========
 
     # vLLM / any OpenAI-compatible local server.

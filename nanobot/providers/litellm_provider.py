@@ -55,15 +55,12 @@ class LiteLLMProvider(LLMProvider):
         spec = self._gateway or find_by_model(model)
         if not spec:
             return
-        if not spec.env_key:
-            # OAuth/provider-only specs (for example: openai_codex)
-            return
-
-        # Gateway/local overrides existing env; standard provider doesn't
-        if self._gateway:
-            os.environ[spec.env_key] = api_key
-        else:
-            os.environ.setdefault(spec.env_key, api_key)
+        # Set primary env var (skip for OAuth/ADC providers with no env_key)
+        if spec.env_key:
+            if self._gateway:
+                os.environ[spec.env_key] = api_key
+            else:
+                os.environ.setdefault(spec.env_key, api_key)
 
         # Resolve env_extras placeholders:
         #   {api_key}  → user's API key
