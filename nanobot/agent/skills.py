@@ -167,10 +167,10 @@ class SkillsLoader:
         return content
     
     def _parse_nanobot_metadata(self, raw: str) -> dict:
-        """Parse skill metadata JSON from frontmatter (supports nanobot and openclaw keys)."""
+        """Parse skill metadata JSON from frontmatter (supports nanobot and marshal keys)."""
         try:
             data = json.loads(raw)
-            return data.get("nanobot", data.get("openclaw", {})) if isinstance(data, dict) else {}
+            return data.get("nanobot", data.get("marshal", {})) if isinstance(data, dict) else {}
         except (json.JSONDecodeError, TypeError):
             return {}
     

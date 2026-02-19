@@ -1,10 +1,11 @@
 """Slack channel implementation using Socket Mode."""
 
 import asyncio
+import os
 import re
 
 from loguru import logger
-from slack_sdk.socket_mode.websockets import SocketModeClient
+from slack_sdk.socket_mode.aiohttp import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from slack_sdk.web.async_client import AsyncWebClient
@@ -45,10 +46,12 @@ class SlackChannel(BaseChannel):
 
         self._running = True
 
-        self._web_client = AsyncWebClient(token=self.config.bot_token)
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+        self._web_client = AsyncWebClient(token=self.config.bot_token, proxy=proxy)
         self._socket_client = SocketModeClient(
             app_token=self.config.app_token,
             web_client=self._web_client,
+            proxy=proxy,
         )
 
         self._socket_client.socket_mode_request_listeners.append(self._on_socket_request)
