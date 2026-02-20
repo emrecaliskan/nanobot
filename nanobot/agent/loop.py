@@ -340,12 +340,24 @@ class AgentLoop:
             channel=msg.channel,
             chat_id=msg.chat_id,
         )
-        progress_request_id = uuid.uuid4().hex if msg.channel == "slack" else None
+        progress_request_id = None
+        if msg.channel == "slack":
+            progress_request_id = uuid.uuid4().hex
+        elif msg.channel == "http_relay":
+            progress_request_id = (
+                (msg.metadata.get("http_relay", {}) or {}).get("request_id")
+                if isinstance(msg.metadata, dict)
+                else None
+            )
+        if isinstance(progress_request_id, str):
+            progress_request_id = progress_request_id.strip()
+        else:
+            progress_request_id = None
 
         async def _default_progress(content: str) -> None:
             """Publish transient per-step progress for channels that support updates."""
             text = (content or "").strip()
-            if not text or msg.channel != "slack" or not progress_request_id:
+            if not text or msg.channel not in {"slack", "http_relay"} or not progress_request_id:
                 return
             progress_metadata = copy.deepcopy(msg.metadata) if msg.metadata else {}
             progress_metadata["progress"] = {
@@ -364,7 +376,11 @@ class AgentLoop:
             )
 
         effective_progress = on_progress
-        if effective_progress is None and msg.channel == "slack":
+        if (
+            effective_progress is None
+            and msg.channel in {"slack", "http_relay"}
+            and progress_request_id
+        ):
             effective_progress = _default_progress
             await effective_progress("Thinking through your request...")
 

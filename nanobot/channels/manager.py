@@ -56,6 +56,17 @@ class ChannelManager:
             except ImportError as e:
                 logger.warning(f"Slack channel not available: {e}")
 
+        # HTTP relay channel
+        if self.config.channels.http_relay.enabled:
+            try:
+                from nanobot.channels.http_relay import HttpRelayChannel
+                self.channels["http_relay"] = HttpRelayChannel(
+                    self.config.channels.http_relay, self.bus
+                )
+                logger.info("HTTP relay channel enabled")
+            except ImportError as e:
+                logger.warning(f"HTTP relay channel not available: {e}")
+
     
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:
         """Start a channel and log any exceptions."""

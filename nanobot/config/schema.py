@@ -68,11 +68,20 @@ class SlackConfig(Base):
     dm: SlackDMConfig = Field(default_factory=SlackDMConfig)
 
 
+class HttpRelayConfig(Base):
+    """HTTP relay channel configuration."""
+
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = 18791
+
+
 class ChannelsConfig(Base):
     """Configuration for chat channels."""
 
     email: EmailConfig = Field(default_factory=EmailConfig)
     slack: SlackConfig = Field(default_factory=SlackConfig)
+    http_relay: HttpRelayConfig = Field(default_factory=HttpRelayConfig)
 
 
 class AgentDefaults(Base):
